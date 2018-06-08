@@ -29,7 +29,7 @@ func main() {
 	}
 }
 
-func printEntry(e lckexp.LockoEntry, depth int) {
+func printEntry(e *lckexp.LockoEntry, depth int) {
 	log.Printf("%s%s (%s): %s -> %s", strings.Repeat(" ", depth), e.UUID, e.Title, e.Username, e.Password)
 	for _, e := range e.Children {
 		printEntry(e, depth+1)

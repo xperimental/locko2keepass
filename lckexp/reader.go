@@ -4,12 +4,12 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
 type LockoExport struct {
-	RawEntries  map[string]RawEntry
-	RootEntries []LockoEntry
+	RootEntries []*LockoEntry
 }
 
 type LockoEntry struct {
@@ -17,7 +17,7 @@ type LockoEntry struct {
 	Title    string
 	Username string
 	Password string
-	Children []LockoEntry
+	Children []*LockoEntry
 }
 
 type RawEntry struct {
@@ -73,58 +73,79 @@ func ReadExport(fileName string) (*LockoExport, error) {
 		return nil, fmt.Errorf("error opening archive: %s", err)
 	}
 
-	rawEntries := make(map[string]RawEntry)
+	entries := []*LockoEntry{}
 	for _, info := range archive.File {
 		if info.FileInfo().IsDir() {
 			continue
 		}
 
-		file, err := info.Open()
+		rawEntry, err := readRawEntry(info)
 		if err != nil {
-			return nil, fmt.Errorf("error opening item %s: %s", info.Name, err)
-		}
-		defer file.Close()
-
-		var entry RawEntry
-		if err := json.NewDecoder(file).Decode(&entry); err != nil {
 			return nil, fmt.Errorf("error reading item %s: %s", info.Name, err)
 		}
 
-		rawEntries[info.Name] = entry
-	}
+		converted := &LockoEntry{
+			UUID:     rawEntry.UUID,
+			Title:    rawEntry.Title,
+			Username: rawEntry.Username(),
+			Password: rawEntry.Password(),
+		}
 
-	entries, err := convertEntries(rawEntries)
-	if err != nil {
-		return nil, fmt.Errorf("error converting entries: %s", err)
+		id := strings.TrimSuffix(info.Name, ".item")
+		dir, base := splitName(id)
+
+		if dir == "." {
+			entries = append(entries, converted)
+			continue
+		}
+
+		parent, ok := findParent(entries, dir)
+		if !ok {
+			return nil, fmt.Errorf("can not find parent %s for %s", dir, base)
+		}
+
+		parent.Children = append(parent.Children, converted)
 	}
 
 	return &LockoExport{
-		RawEntries:  rawEntries,
 		RootEntries: entries,
 	}, nil
 }
 
-func convertEntries(raw map[string]RawEntry) ([]LockoEntry, error) {
-	rootEntryNames := []string{}
-	for k := range raw {
-		if strings.ContainsRune(k, '/') {
-			continue
+func readRawEntry(info *zip.File) (*RawEntry, error) {
+	file, err := info.Open()
+	if err != nil {
+		return nil, fmt.Errorf("error opening: %s", err)
+	}
+	defer file.Close()
+
+	var entry RawEntry
+	if err := json.NewDecoder(file).Decode(&entry); err != nil {
+		return nil, fmt.Errorf("parse error: %s", err)
+	}
+
+	return &entry, nil
+}
+
+func splitName(name string) (string, string) {
+	dir := filepath.Dir(name)
+	base := filepath.Base(name)
+	return dir, base
+}
+
+func findParent(entries []*LockoEntry, name string) (*LockoEntry, bool) {
+	dir, base := splitName(name)
+
+	if dir != "." {
+		// TODO implement sub-folders
+		return nil, false
+	}
+
+	for _, e := range entries {
+		if e.UUID == base {
+			return e, true
 		}
-
-		rootEntryNames = append(rootEntryNames, k)
 	}
 
-	entries := []LockoEntry{}
-	for _, name := range rootEntryNames {
-		entry := raw[name]
-		entries = append(entries, LockoEntry{
-			UUID:     entry.UUID,
-			Title:    entry.Title,
-			Username: entry.Username(),
-			Password: entry.Password(),
-		})
-		delete(raw, name)
-	}
-
-	return entries, nil
+	return nil, false
 }
