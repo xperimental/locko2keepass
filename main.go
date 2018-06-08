@@ -92,9 +92,17 @@ func mkProtectedValue(key string, value string) gokeepasslib.ValueData {
 
 func convertEntry(in *lckexp.LockoEntry) gokeepasslib.Entry {
 	entry := gokeepasslib.NewEntry()
-	entry.Values = append(entry.Values, mkValue("Title", in.Title))
-	entry.Values = append(entry.Values, mkValue("UserName", in.Username))
-	entry.Values = append(entry.Values, mkProtectedValue("Password", in.Password))
+	if in.Title != "" {
+		entry.Values = append(entry.Values, mkValue("Title", in.Title))
+	}
+
+	if in.Username != "" {
+		entry.Values = append(entry.Values, mkValue("UserName", in.Username))
+	}
+
+	if in.Password != "" {
+		entry.Values = append(entry.Values, mkProtectedValue("Password", in.Password))
+	}
 	return entry
 }
 
