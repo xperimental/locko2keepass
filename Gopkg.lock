@@ -7,9 +7,15 @@
   revision = "583c0c0531f06d5278b7d917446061adc344b5cd"
   version = "v1.0.1"
 
+[[projects]]
+  branch = "master"
+  name = "github.com/tobischo/gokeepasslib"
+  packages = ["."]
+  revision = "a50b34e2b005f38b6f565c126511bab76559112a"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7a310deb997ad762b30be586be9b075150d73a76fabb912c85ea63f858126e0a"
+  inputs-digest = "b881d6d5b4533d8ddb67bb7babefaf712704c8cf050eedc2d5c2e6b733c1fac6"
   solver-name = "gps-cdcl"
   solver-version = 1
