@@ -1,12 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"log"
-	"strings"
+	"os"
 
 	"github.com/spf13/pflag"
+	"github.com/tobischo/gokeepasslib"
 	"github.com/xperimental/locko2keepass/lckexp"
 )
+
+var masterPassword = "default"
 
 func main() {
 	log.SetFlags(0)
@@ -23,15 +27,104 @@ func main() {
 			continue
 		}
 
-		for _, e := range data.RootEntries {
-			printEntry(e, 0)
+		database, err := convertToKeepass(data.RootEntries)
+		if err != nil {
+			log.Printf("Error converting to Keepass database: %s", err)
+			continue
+		}
+
+		if err := writeKeepass(file+".kdbx", database); err != nil {
+			log.Printf("Error writing Keepass file: %s", err)
+			continue
 		}
 	}
 }
 
-func printEntry(e *lckexp.LockoEntry, depth int) {
-	log.Printf("%s%s (%s): %s -> %s", strings.Repeat(" ", depth), e.UUID, e.Title, e.Username, e.Password)
-	for _, e := range e.Children {
-		printEntry(e, depth+1)
+func convertToKeepass(rootEntries []*lckexp.LockoEntry) (*gokeepasslib.Group, error) {
+	root := gokeepasslib.NewGroup()
+	root.Name = "Locko Import"
+
+	for _, e := range rootEntries {
+		if len(e.Children) > 0 {
+			subGroup, err := convertGroup(e)
+			if err != nil {
+				return nil, err
+			}
+			root.Groups = append(root.Groups, *subGroup)
+			continue
+		}
+
+		entry := convertEntry(e)
+		root.Entries = append(root.Entries, entry)
 	}
+
+	return &root, nil
+}
+
+func convertGroup(in *lckexp.LockoEntry) (*gokeepasslib.Group, error) {
+	group := gokeepasslib.NewGroup()
+	group.Name = in.Title
+
+	for _, e := range in.Children {
+		if len(e.Children) > 0 {
+			subGroup, err := convertGroup(e)
+			if err != nil {
+				return nil, err
+			}
+			group.Groups = append(group.Groups, *subGroup)
+			continue
+		}
+
+		entry := convertEntry(e)
+		group.Entries = append(group.Entries, entry)
+	}
+
+	return &group, nil
+}
+
+func mkValue(key string, value string) gokeepasslib.ValueData {
+	return gokeepasslib.ValueData{Key: key, Value: gokeepasslib.V{Content: value}}
+}
+
+func mkProtectedValue(key string, value string) gokeepasslib.ValueData {
+	return gokeepasslib.ValueData{Key: key, Value: gokeepasslib.V{Content: value, Protected: true}}
+}
+
+func convertEntry(in *lckexp.LockoEntry) gokeepasslib.Entry {
+	entry := gokeepasslib.NewEntry()
+	entry.Values = append(entry.Values, mkValue("Title", in.Title))
+	entry.Values = append(entry.Values, mkValue("UserName", in.Username))
+	entry.Values = append(entry.Values, mkProtectedValue("Password", in.Password))
+	return entry
+}
+
+func writeKeepass(fileName string, rootGroup *gokeepasslib.Group) error {
+	db := &gokeepasslib.Database{
+		Signature:   &gokeepasslib.DefaultSig,
+		Headers:     gokeepasslib.NewFileHeaders(),
+		Credentials: gokeepasslib.NewPasswordCredentials(masterPassword),
+		Content: &gokeepasslib.DBContent{
+			Meta: gokeepasslib.NewMetaData(),
+			Root: &gokeepasslib.RootData{
+				Groups: []gokeepasslib.Group{*rootGroup},
+			},
+		},
+	}
+
+	if err := db.LockProtectedEntries(); err != nil {
+		return fmt.Errorf("error locking database: %s", err)
+	}
+
+	file, err := os.Create(fileName)
+	if err != nil {
+		return fmt.Errorf("error creating file: %s", err)
+	}
+	defer file.Close()
+
+	encoder := gokeepasslib.NewEncoder(file)
+	if err := encoder.Encode(db); err != nil {
+		return fmt.Errorf("error encoding database: %s", err)
+	}
+
+	return nil
 }
